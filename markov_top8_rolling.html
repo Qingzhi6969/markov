@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>前八概率 · Markov位置模型（滚动重估版）</title>
+<style>
+  :root{
+    --bg:#0f1216; --card:#171b21; --ink:#e8eef7; --muted:#a7b0be;
+    --accent:#5b8cff; --accent-2:#4ad295; --danger:#ff6b6b; --border:#232a33;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .wrap{max-width:1100px;margin:0 auto;padding:18px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin:12px 0}
+  h1{font-size:22px;margin:4px 0 10px}
+  h2{font-size:18px;margin:8px 0}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1 1 320px}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  textarea,input,button,select{
+    width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--border);
+    background:#0b0e12;color:var(--ink);outline:none;
+  }
+  textarea{min-height:96px;resize:vertical}
+  input[type="number"]{text-align:right}
+  button{cursor:pointer;background:var(--accent);border-color:transparent;font-weight:600}
+  button.secondary{background:#12161c;border:1px solid var(--border)}
+  button.ghost{background:transparent;border:1px dashed var(--border);color:var(--muted)}
+  .hint{font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;margin-top:10px}
+  th,td{padding:10px;border-bottom:1px solid var(--border);text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:#11161d;border:1px solid var(--border);color:var(--muted)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--accent-2);color:#08140f;font-weight:700}
+  .grid-10{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+  .posBox{padding:10px;border:1px solid var(--border);border-radius:10px;background:#0b0e12}
+  .posBox input{width:100%;text-align:right}
+  .footer{font-size:12px;color:var(--muted);margin-top:12px}
+  .good{color:var(--accent-2)}
+  .bad{color:var(--danger)}
+  .nowrap{white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>前八概率 · Markov 位置模型（滚动重估）<span class="badge">默认已更新至 2025-08-10</span></h1>
+
+  <div class="card">
+    <div class="row">
+      <div class="col">
+        <label>上一期 10 个数字（从第一位到第十位，空格/逗号分隔）</label>
+        <textarea id="lastDraw" placeholder="例如：06 03 09 05 01 02 10 04 08 07"></textarea>
+        <div class="row" style="margin-top:8px">
+          <div class="col"><button id="btnDemo" class="secondary">填入示例</button></div>
+          <div class="col"><button id="btnCompute">计算概率</button></div>
+        </div>
+        <div class="hint">要求：恰好 10 个、范围 01~10（10 个数字互不重复）。顺序必须是上一期从第一位→第十位。</div>
+      </div>
+
+      <div class="col">
+        <label>模型：P(Top8 | 上一局位置 = j)</label>
+        <div class="grid-10">
+          <div class="posBox"><div class="hint">位置1</div><input id="p1" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置2</div><input id="p2" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置3</div><input id="p3" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置4</div><input id="p4" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置5</div><input id="p5" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置6</div><input id="p6" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置7</div><input id="p7" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置8</div><input id="p8" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置9</div><input id="p9" type="number" step="0.000001"></div>
+          <div class="posBox"><div class="hint">位置10</div><input id="p10" type="number" step="0.000001"></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="col"><button id="btnReset" class="ghost">恢复默认（截至 8/10，平滑后）</button></div>
+          <div class="col"><button id="btnClear" class="secondary">清空上一期</button></div>
+        </div>
+        <div class="hint">你可直接编辑这 10 个概率；“滚动重估”会自动回填。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>结果</h2>
+    <div id="summary" class="hint">— 请先计算 —</div>
+    <div class="row" style="margin:8px 0 14px 0">
+      <div class="col"><button id="btnCopy" class="secondary">复制表格 CSV</button></div>
+      <div class="col"><button id="btnDownload" class="secondary">下载 CSV</button></div>
+    </div>
+    <div style="overflow:auto;">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>数字</th>
+            <th>上一局位置</th>
+            <th>P(进前八)</th>
+            <th>概率占比（ratio）</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="footer" id="footerMsg"></div>
+  </div>
+
+  <div class="card">
+    <h2>滚动重估（可选）</h2>
+    <div class="row">
+      <div class="col">
+        <label>粘贴“历史若干期”，每行 10 个数字（第一位→第十位），空格或逗号分隔。建议从旧到新。</label>
+        <textarea id="histData" placeholder="例如：&#10;06 03 09 05 01 02 10 04 08 07&#10;...（下一行）"></textarea>
+        <div class="row" style="margin-top:8px">
+          <div class="col">
+            <label>顺序</label>
+            <select id="histOrder">
+              <option value="old2new" selected>从旧→新</option>
+              <option value="new2old">从新→旧</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>只取最近 N 期（可选）</label>
+            <input id="lookback" type="number" step="1" placeholder="如 2016（≈7天）">
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <label>贝叶斯平滑（先验）</label>
+        <div class="row">
+          <div class="col">
+            <div class="hint">基线 p0（默认 0.80）</div>
+            <input id="p0" type="number" step="0.001" value="0.80">
+          </div>
+          <div class="col">
+            <div class="hint">等效样本 k（默认 40）</div>
+            <input id="k" type="number" step="1" value="40">
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <div class="col"><button id="btnReestimate">用粘贴历史重估（不分段）</button></div>
+        </div>
+        <div class="hint">说明：对每个数字，统计“上一局位置=j → 下一局是否在前八”的成功率，并做 Beta(α0,β0) 平滑，α0=p0·k, β0=(1-p0)·k。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>分段（可选）</h2>
+    <div class="row">
+      <div class="col">
+        <label>使用“内置分段表”（截至 8/10，已平滑）</label>
+        <div class="row">
+          <div class="col">
+            <select id="segSel">
+              <option value="auto" selected>自动（按当前手机时间段）</option>
+              <option value="00-06">00-06</option>
+              <option value="06-12">06-12</option>
+              <option value="12-18">12-18</option>
+              <option value="18-24">18-24</option>
+              <option value="overall">整体（不分段）</option>
+            </select>
+          </div>
+          <div class="col"><button id="btnFillSeg" class="secondary">按分段填充</button></div>
+        </div>
+        <div class="hint">若未导入分段 JSON，则分段默认与“整体”一致。</div>
+      </div>
+
+      <div class="col">
+        <label>导入分段 JSON（可选）</label>
+        <input id="segJson" type="file" accept=".json" />
+        <div class="hint">可导入我已计算的文件：<span class="nowrap">markov_segmented_smoothed_up_to_2025-08-10.json</span>（下方提供下载），导入后分段表将更精确。</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    说明：默认概率来自 2025-07 + 2025-08-10（含）数据，已做 k=40、p0=0.80 的贝叶斯平滑。你可以用“滚动重估”替换它，也可导入“分段 JSON”增强时段适配。
+  </div>
+</div>
+
+<script>
+/*** 1) 默认内置：截至 2025-08-10 的“整体”平滑概率 ***/
+const BUILTIN_OVERALL = {
+  1: 0.8097408626656537,
+  2: 0.7973326580568920,
+  3: 0.7958976956191441,
+  4: 0.7987676204946400,
+  5: 0.8061956613488647,
+  6: 0.7975014771672153,
+  7: 0.7949691905123660,
+  8: 0.8007934498185194,
+  9: 0.8023128218114290,
+  10: 0.7964885625052756
+};
+
+/*** 2) 内置分段表（初始与整体一致；导入 JSON 后会覆盖） ***/
+let BUILTIN_SEG = {
+  "00-06": {...BUILTIN_OVERALL},
+  "06-12": {...BUILTIN_OVERALL},
+  "12-18": {...BUILTIN_OVERALL},
+  "18-24": {...BUILTIN_OVERALL},
+  "overall": {...BUILTIN_OVERALL}
+};
+
+function pad2(n){ return n.toString().padStart(2,'0'); }
+function setP(vals){ for(let i=1;i<=10;i++){ document.getElementById('p'+i).value = (vals[i]??0.8).toFixed(6); } }
+function setDefaults(){ setP(BUILTIN_OVERALL); }
+setDefaults();
+
+function clearInputs(){ document.getElementById('lastDraw').value = ''; }
+function fillDemo(){ document.getElementById('lastDraw').value = '06 03 09 05 01 02 10 04 08 07'; }
+
+function parseNumsLine(line){
+  const arr = line.replace(/，/g,',').trim().split(/[\s,]+/).filter(Boolean);
+  if(arr.length!==10) return null;
+  const nums = arr.map(x=>parseInt(x,10));
+  if(nums.some(n=>!(n>=1 && n<=10))) return null;
+  if(new Set(nums).size!==10) return null;
+  return nums;
+}
+
+function parseLastDraw(){
+  const raw = document.getElementById('lastDraw').value;
+  const arr = raw.replace(/，/g,',').trim().split(/[\s,]+/).filter(Boolean);
+  if(arr.length!==10) return {ok:false,msg:'需要恰好 10 个数字。当前为 '+arr.length+' 个。'};
+  const nums = arr.map(x=>parseInt(x,10));
+  if(nums.some(n=>!(n>=1 && n<=10))) return {ok:false,msg:'数字范围必须在 01~10（或 1~10）。'};
+  if(new Set(nums).size!==10) return {ok:false,msg:'10 个数字必须互不重复。'};
+  return {ok:true, nums};
+}
+
+function readP(){
+  const P={}; for(let i=1;i<=10;i++){ let v=parseFloat(document.getElementById('p'+i).value); if(!(v>=0 && v<=1)) return {ok:false,msg:'位置 '+i+' 的概率非法（需 0~1）。'}; P[i]=v; }
+  return {ok:true,P};
+}
+
+function compute(){
+  const parsed = parseLastDraw();
+  if(!parsed.ok){ document.getElementById('summary').innerHTML='<span class="bad">'+parsed.msg+'</span>'; return; }
+  const read = readP();
+  if(!read.ok){ document.getElementById('summary').innerHTML='<span class="bad">'+read.msg+'</span>'; return; }
+  const last = parsed.nums, P = read.P;
+
+  // number -> prev position
+  const prevPos={}; for(let i=0;i<10;i++){ prevPos[last[i]]=i+1; }
+
+  let rows=[];
+  for(let num=1; num<=10; num++){
+    const pos = prevPos[num];
+    const p = P[pos];
+    rows.push({num, prevPos:pos, p});
+  }
+
+  const sumP = rows.reduce((a,r)=>a+r.p,0);
+  rows.forEach(r=>{ r.ratio = sumP>0? r.p/sumP : 0; });
+  rows.sort((a,b)=> (b.p-a.p) || (a.num-b.num));
+  const best = rows[0];
+
+  const tbody=document.querySelector('#tbl tbody');
+  tbody.innerHTML='';
+  rows.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td>${i+1}</td><td>${pad2(r.num)}</td><td>${r.prevPos}</td><td>${r.p.toFixed(6)}</td><td>${(r.ratio*100).toFixed(2)}%</td>`;
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById('summary').innerHTML = `推荐：<span class="pill">${pad2(best.num)}</span>（上一局位置 ${best.prevPos} → P=${best.p.toFixed(6)}）。 <span class="badge">ratio 为相对占比 = P / ΣP</span>`;
+  document.getElementById('footerMsg').textContent = '提示：你可随时用滚动重估 / 分段表覆盖上面10个位置概率。';
+  window._lastRows = rows;
+}
+
+function toCSV(rows){
+  const header=['Rank','Number','PrevPosition','P_Top8','Ratio']; let lines=[header.join(',')];
+  rows.forEach((r,i)=>{ lines.push([i+1,pad2(r.num),r.prevPos,r.p.toFixed(6),(r.ratio*100).toFixed(2)+'%'].join(',')); });
+  return lines.join('\n');
+}
+function copyCSV(){ if(!window._lastRows){ alert('请先计算。'); return; } navigator.clipboard.writeText(toCSV(window._lastRows)).then(()=>alert('CSV 已复制')); }
+function downloadCSV(){ if(!window._lastRows){ alert('请先计算。'); return; } const blob=new Blob([toCSV(window._lastRows)],{type:'text/csv;charset=utf-8;'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='markov_top8_prob.csv'; document.body.appendChild(a); a.click(); setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },0); }
+
+function reestimateFromHistory(){
+  const txt = document.getElementById('histData').value.trim();
+  if(!txt){ alert('请先粘贴历史数据。'); return; }
+  let lines = txt.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  let draws = [];
+  for(const line of lines){
+    const nums = parseNumsLine(line);
+    if(nums) draws.push(nums);
+  }
+  if(!draws.length){ alert('未解析到有效的“每行10个数字”。'); return; }
+
+  // 顺序
+  if(document.getElementById('histOrder').value==='new2old') draws.reverse();
+
+  // lookback
+  const L = parseInt(document.getElementById('lookback').value,10);
+  if(!isNaN(L) && L>1 && L<draws.length) draws = draws.slice(-L);
+
+  // 统计 prevPos -> successes/count
+  const succ = Array(11).fill(0), cnt = Array(11).fill(0); // 1..10
+  for(let t=1;t<draws.length;t++){
+    const prev = draws[t-1]; const now = draws[t];
+    // number -> positions
+    const posPrev={}, posNow={};
+    for(let i=0;i<10;i++){ posPrev[prev[i]]=i+1; posNow[now[i]]=i+1; }
+    for(let num=1; num<=10; num++){
+      const j = posPrev[num]; const y = (posNow[num]<=8) ? 1 : 0;
+      succ[j]+=y; cnt[j]+=1;
+    }
+  }
+
+  // 平滑
+  const p0 = parseFloat(document.getElementById('p0').value)||0.80;
+  const k = parseFloat(document.getElementById('k').value)||40;
+  const alpha0 = p0*k, beta0=(1-p0)*k;
+  const P={};
+  for(let j=1;j<=10;j++){
+    P[j] = (succ[j]+alpha0)/(cnt[j]+alpha0+beta0);
+  }
+  setP(P);
+  alert('已用粘贴历史重估完成，并已回填 10 个位置概率。');
+}
+
+function currentTOD(){
+  const h = new Date().getHours();
+  if(h<6) return '00-06';
+  if(h<12) return '06-12';
+  if(h<18) return '12-18';
+  return '18-24';
+}
+function fillFromSeg(){
+  const sel = document.getElementById('segSel').value;
+  const key = sel==='auto' ? currentTOD() : sel;
+  const table = BUILTIN_SEG[key] || BUILTIN_SEG['overall'];
+  setP(table);
+  alert('已按分段表回填（段：'+(sel==='auto'? (key+'(自动)') : key)+')。');
+}
+
+function importSegJSON(evt){
+  const f=evt.target.files[0]; if(!f) return;
+  const fr=new FileReader();
+  fr.onload = (e)=>{
+    try{
+      const obj = JSON.parse(e.target.result);
+      if(obj && obj.segmented_s && obj.overall_s){
+        BUILTIN_SEG['overall'] = obj.overall_s;
+        for(const k of ['00-06','06-12','12-18','18-24']){
+          if(obj.segmented_s[k]) BUILTIN_SEG[k] = obj.segmented_s[k];
+        }
+        alert('分段 JSON 导入成功！现在“按分段填充”将使用更精确的分段表。');
+      }else{
+        alert('JSON 格式不匹配。');
+      }
+    }catch(err){ alert('解析 JSON 失败：'+err); }
+  };
+  fr.readAsText(f);
+}
+
+// Bindings
+document.getElementById('btnReset').addEventListener('click', setDefaults);
+document.getElementById('btnClear').addEventListener('click', clearInputs);
+document.getElementById('btnDemo').addEventListener('click', fillDemo);
+document.getElementById('btnCompute').addEventListener('click', compute);
+document.getElementById('btnCopy').addEventListener('click', copyCSV);
+document.getElementById('btnDownload').addEventListener('click', downloadCSV);
+document.getElementById('btnReestimate').addEventListener('click', reestimateFromHistory);
+document.getElementById('btnFillSeg').addEventListener('click', fillFromSeg);
+document.getElementById('segJson').addEventListener('change', importSegJSON);
+</script>
+</body>
+</html>
